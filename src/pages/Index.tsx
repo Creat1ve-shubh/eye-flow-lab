@@ -1,16 +1,30 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { AppProvider, useApp } from '@/context/AppContext';
+import Dashboard from '@/components/Dashboard';
+import SelectMode from '@/components/SelectMode';
+import Calibration from '@/components/Calibration';
+import EyeCover from '@/components/EyeCover';
+import EyeTest from '@/components/EyeTest';
+import Results from '@/components/Results';
 
-// IMPORTANT: Fully REPLACE this with your own code
-const PlaceholderIndex = () => {
-  // PLACEHOLDER: Replace this entire return statement with the user's app.
-  // The inline background color is intentionally not part of the design system.
+function AppScreens() {
+  const { screen, isTransitioning } = useApp();
+
   return (
-    <div className="flex min-h-screen items-center justify-center" style={{ backgroundColor: '#fcfbf8' }}>
-      <img data-lovable-blank-page-placeholder="REMOVE_THIS" src="/placeholder.svg" alt="Your app will live here!" />
+    <div className={`transition-opacity duration-300 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
+      {screen === 'dashboard' && <Dashboard />}
+      {screen === 'selectMode' && <SelectMode />}
+      {screen === 'calibration' && <Calibration />}
+      {screen === 'eyeCover' && <EyeCover />}
+      {screen === 'test' && <EyeTest />}
+      {screen === 'results' && <Results />}
     </div>
   );
-};
+}
 
-const Index = PlaceholderIndex;
-
-export default Index;
+export default function Index() {
+  return (
+    <AppProvider>
+      <AppScreens />
+    </AppProvider>
+  );
+}
