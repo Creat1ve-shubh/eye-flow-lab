@@ -1,11 +1,13 @@
+import { PatientDetails } from '@/context/AppContext';
+
 export type EyeType = 'left' | 'right' | 'both';
 export type TestMode = 'left' | 'right' | 'both' | 'full';
 
 export interface SnellenRow {
   row: number;
   letters: string;
-  size: number; // font size in px
-  acuity: string; // e.g., "20/200"
+  size: number;
+  acuity: string;
 }
 
 const LETTER_POOL = 'EFPTOZLPDCBDSN';
@@ -46,6 +48,7 @@ export interface TestResult {
   date: string;
   results: EyeResult[];
   overallAcuity: string;
+  patientName?: string;
 }
 
 export function getAcuityFromRow(row: number): string {
@@ -65,39 +68,102 @@ export function getScoreCategory(acuity: string): 'excellent' | 'good' | 'modera
   return 'poor';
 }
 
-export function getRecommendations(category: string): string[] {
+export function getRecommendations(category: string, patient?: PatientDetails | null): string[] {
+  const recs: string[] = [];
+
+  // Base recommendations by category
   switch (category) {
     case 'excellent':
-      return [
+      recs.push(
         'Your vision appears to be in great shape!',
         'Continue with regular eye checkups every 1-2 years.',
-        'Maintain a healthy diet rich in vitamins A and C.',
-        'Follow the 20-20-20 rule when using screens.',
-      ];
+      );
+      break;
     case 'good':
-      return [
+      recs.push(
         'Your vision is good but could benefit from monitoring.',
         'Consider scheduling an eye exam within the next 6 months.',
-        'Ensure adequate lighting when reading.',
-        'Take regular breaks from screen time.',
-      ];
+      );
+      break;
     case 'moderate':
-      return [
+      recs.push(
         'We recommend scheduling an eye examination soon.',
         'You may benefit from corrective lenses.',
-        'Avoid straining your eyes in low light conditions.',
-        'Consider blue-light filtering glasses for screen use.',
-      ];
+      );
+      break;
     case 'poor':
-      return [
+      recs.push(
         'Please consult an eye care professional as soon as possible.',
-        'Avoid driving at night until your vision is evaluated.',
         'Corrective lenses or treatment may significantly improve your quality of life.',
-        'Regular eye exams are essential — at least once every 6 months.',
-      ];
-    default:
-      return [];
+      );
+      break;
   }
+
+  if (!patient || !patient.age) {
+    // Generic tips
+    recs.push(
+      'Follow the 20-20-20 rule when using screens.',
+      'Maintain a healthy diet rich in vitamins A and C.',
+    );
+    return recs;
+  }
+
+  // Age-specific recommendations
+  if (patient.age < 18) {
+    recs.push('Children and teens should have annual eye exams to monitor developing vision.');
+    if (category !== 'excellent') {
+      recs.push('Early intervention can prevent worsening vision — consult a pediatric ophthalmologist.');
+    }
+  } else if (patient.age >= 40 && patient.age < 60) {
+    recs.push('After 40, presbyopia (difficulty focusing on close objects) is common — consider reading glasses.');
+    recs.push('Screen for glaucoma and macular degeneration during your next eye exam.');
+  } else if (patient.age >= 60) {
+    recs.push('Annual comprehensive eye exams are essential after age 60.');
+    recs.push('Watch for symptoms of cataracts: blurry vision, halos around lights, faded colors.');
+    if (category === 'moderate' || category === 'poor') {
+      recs.push('Ask your doctor about cataract evaluation and age-related macular degeneration screening.');
+    }
+  }
+
+  // Diabetes
+  if (patient.hasDiabetes) {
+    recs.push('Diabetic retinopathy is a leading cause of blindness — get a dilated eye exam at least once a year.');
+    recs.push('Maintain stable blood sugar levels to protect your eye health.');
+  }
+
+  // Hypertension
+  if (patient.hasHypertension) {
+    recs.push('High blood pressure can damage retinal blood vessels — monitor your blood pressure regularly.');
+  }
+
+  // Family history
+  if (patient.familyHistoryEyeDisease) {
+    recs.push('With a family history of eye disease, regular screenings for glaucoma and macular degeneration are important.');
+  }
+
+  // Screen time
+  if (patient.screenTimeHours && patient.screenTimeHours >= 6) {
+    recs.push(`With ${patient.screenTimeHours}+ hours of daily screen time, follow the 20-20-20 rule strictly.`);
+    recs.push('Consider blue-light filtering glasses and ensure adequate screen brightness.');
+  } else {
+    recs.push('Follow the 20-20-20 rule: every 20 minutes, look 20 feet away for 20 seconds.');
+  }
+
+  // Glasses wearer
+  if (patient.hasGlasses) {
+    if (category === 'moderate' || category === 'poor') {
+      recs.push('Your current prescription may need updating — schedule an appointment to check.');
+    } else {
+      recs.push('Keep your prescription up to date with regular checkups.');
+    }
+  }
+
+  // Last exam
+  if (patient.lastEyeExam === 'more_than_2_years' || patient.lastEyeExam === 'never') {
+    recs.push('It has been a while since your last eye exam — we strongly recommend scheduling one soon.');
+  }
+
+  return recs;
 }
 
 export function getTestSequence(mode: TestMode): EyeType[] {
