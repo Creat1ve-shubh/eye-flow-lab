@@ -107,7 +107,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       testMode: 'full',
       currentEyeIndex: 0,
       eyeResults: [],
-      testHistory: saved ? JSON.parse(saved) : [],
+      testHistory: history,
       isTransitioning: false,
       patientDetails: savedPatient ? JSON.parse(savedPatient) : defaultPatientDetails,
     };
