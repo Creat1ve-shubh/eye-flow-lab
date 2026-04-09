@@ -98,6 +98,8 @@ const AppContext = createContext<AppContextType | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem('visioncheck-history');
+    const parsed = saved ? JSON.parse(saved) : [];
+    const history = parsed.length > 0 ? parsed : MOCK_HISTORY;
     const savedPatient = localStorage.getItem('visioncheck-patient');
     return {
       screen: 'dashboard',
