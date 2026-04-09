@@ -2,7 +2,31 @@ import React, { createContext, useContext, useState, useCallback } from 'react';
 import { Language } from '@/lib/i18n';
 import { TestMode, TestResult, EyeResult } from '@/lib/eyeTestData';
 
-export type AppScreen = 'dashboard' | 'selectMode' | 'calibration' | 'eyeCover' | 'test' | 'results';
+export type AppScreen = 'dashboard' | 'patientDetails' | 'selectMode' | 'calibration' | 'eyeCover' | 'test' | 'results';
+
+export interface PatientDetails {
+  name: string;
+  age: number | null;
+  gender: 'male' | 'female' | 'other' | '';
+  hasGlasses: boolean;
+  hasDiabetes: boolean;
+  hasHypertension: boolean;
+  familyHistoryEyeDisease: boolean;
+  screenTimeHours: number | null;
+  lastEyeExam: 'less_than_1_year' | '1_to_2_years' | 'more_than_2_years' | 'never' | '';
+}
+
+export const defaultPatientDetails: PatientDetails = {
+  name: '',
+  age: null,
+  gender: '',
+  hasGlasses: false,
+  hasDiabetes: false,
+  hasHypertension: false,
+  familyHistoryEyeDisease: false,
+  screenTimeHours: null,
+  lastEyeExam: '',
+};
 
 interface AppState {
   screen: AppScreen;
@@ -12,6 +36,7 @@ interface AppState {
   eyeResults: EyeResult[];
   testHistory: TestResult[];
   isTransitioning: boolean;
+  patientDetails: PatientDetails;
 }
 
 interface AppContextType extends AppState {
@@ -22,6 +47,7 @@ interface AppContextType extends AppState {
   addEyeResult: (result: EyeResult) => void;
   resetTest: () => void;
   saveTestResult: (result: TestResult) => void;
+  setPatientDetails: (details: PatientDetails) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -29,6 +55,7 @@ const AppContext = createContext<AppContextType | null>(null);
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(() => {
     const saved = localStorage.getItem('visioncheck-history');
+    const savedPatient = localStorage.getItem('visioncheck-patient');
     return {
       screen: 'dashboard',
       language: 'en',
@@ -37,6 +64,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       eyeResults: [],
       testHistory: saved ? JSON.parse(saved) : [],
       isTransitioning: false,
+      patientDetails: savedPatient ? JSON.parse(savedPatient) : defaultPatientDetails,
     };
   });
 
@@ -75,10 +103,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const setPatientDetails = useCallback((details: PatientDetails) => {
+    localStorage.setItem('visioncheck-patient', JSON.stringify(details));
+    setState(s => ({ ...s, patientDetails: details }));
+  }, []);
+
   return (
     <AppContext.Provider value={{
       ...state, setScreen, setLanguage, setTestMode,
       setCurrentEyeIndex, addEyeResult, resetTest, saveTestResult,
+      setPatientDetails,
     }}>
       {children}
     </AppContext.Provider>

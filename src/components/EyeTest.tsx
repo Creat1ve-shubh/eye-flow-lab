@@ -2,8 +2,9 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import { t } from '@/lib/i18n';
 import { generateSnellenChart, getTestSequence, getAcuityFromRow, EyeType } from '@/lib/eyeTestData';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { Button } from '@/components/ui/button';
-import { CheckCircle, XCircle } from 'lucide-react';
+import { CheckCircle, XCircle, Mic, MicOff } from 'lucide-react';
 
 export default function EyeTest() {
   const { language, setScreen, testMode, currentEyeIndex, setCurrentEyeIndex, addEyeResult } = useApp();
@@ -18,17 +19,32 @@ export default function EyeTest() {
   const [lastCorrectRow, setLastCorrectRow] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Voice recognition
+  const { isListening, isSupported, error: speechError, startListening, stopListening } = useSpeechRecognition({
+    onResult: (transcript) => {
+      setUserInput(transcript);
+      // Auto-submit after voice input with a small delay for user to see
+      setTimeout(() => {
+        handleSubmitWithValue(transcript);
+      }, 400);
+    },
+    lang: language === 'en' ? 'en-US' : language === 'hi' ? 'hi-IN' : language === 'ta' ? 'ta-IN' : 'te-IN',
+  });
+
   useEffect(() => {
-    inputRef.current?.focus();
-  }, [currentRow]);
+    if (!isListening) {
+      inputRef.current?.focus();
+    }
+  }, [currentRow, isListening]);
 
   const row = chart[currentRow];
   const totalRows = chart.length;
   const progress = ((currentRow) / totalRows) * 100;
 
-  const handleSubmit = () => {
-    if (!userInput.trim()) return;
-    const isCorrect = userInput.toUpperCase().replace(/\s/g, '') === row.letters;
+  const handleSubmitWithValue = (value: string) => {
+    if (!value.trim()) return;
+    if (feedback !== null) return; // prevent double submit
+    const isCorrect = value.toUpperCase().replace(/\s/g, '') === row.letters;
 
     setFeedback(isCorrect ? 'correct' : 'incorrect');
 
@@ -40,13 +56,17 @@ export default function EyeTest() {
     setTimeout(() => {
       setFeedback(null);
       setUserInput('');
-      advance();
+      advanceRow();
     }, 800);
   };
 
-  const advance = () => {
+  const handleSubmit = () => {
+    handleSubmitWithValue(userInput);
+  };
+
+  const advanceRow = () => {
     if (currentRow + 1 < totalRows) {
-      setCurrentRow(currentRow + 1);
+      setCurrentRow(prev => prev + 1);
     } else {
       finishEyeTest();
     }
@@ -72,7 +92,15 @@ export default function EyeTest() {
   const handleSkip = () => {
     setUserInput('');
     setFeedback(null);
-    advance();
+    advanceRow();
+  };
+
+  const toggleVoice = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
+    }
   };
 
   const eyeLabel = currentEye === 'left' ? t('results.leftEye', language)
@@ -141,6 +169,11 @@ export default function EyeTest() {
         <div className="w-full max-w-sm animate-fade-in-up" style={{ animationDelay: '200ms', animationFillMode: 'both' }}>
           <p className="text-sm text-muted-foreground text-center mb-3">
             {t('test.instruction', language)}
+            {isSupported && (
+              <span className="block text-xs mt-1 text-muted-foreground/70">
+                {t('test.voiceHint', language)}
+              </span>
+            )}
           </p>
           <div className="flex gap-2">
             <input
@@ -154,6 +187,20 @@ export default function EyeTest() {
               disabled={feedback !== null}
               autoComplete="off"
             />
+            {isSupported && (
+              <button
+                onClick={toggleVoice}
+                disabled={feedback !== null}
+                className={`h-12 w-12 rounded-full border flex items-center justify-center transition-all duration-200 ${
+                  isListening
+                    ? 'bg-foreground text-background border-foreground animate-pulse-gentle'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/50'
+                }`}
+                title={isListening ? t('test.stopVoice', language) : t('test.startVoice', language)}
+              >
+                {isListening ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+              </button>
+            )}
             <Button
               onClick={handleSubmit}
               disabled={!userInput.trim() || feedback !== null}
@@ -162,6 +209,14 @@ export default function EyeTest() {
               {t('test.submit', language)}
             </Button>
           </div>
+          {speechError && (
+            <p className="text-xs text-destructive text-center mt-2 animate-fade-in">{speechError}</p>
+          )}
+          {isListening && (
+            <p className="text-xs text-muted-foreground text-center mt-2 animate-fade-in">
+              {t('test.listening', language)}
+            </p>
+          )}
           <button
             onClick={handleSkip}
             disabled={feedback !== null}
