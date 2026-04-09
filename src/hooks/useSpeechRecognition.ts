@@ -1,13 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 
-interface SpeechRecognitionEvent {
-  results: SpeechRecognitionResultList;
-  resultIndex: number;
-}
-
 interface UseSpeechRecognitionOptions {
   onResult?: (transcript: string) => void;
-  continuous?: boolean;
   lang?: string;
 }
 
@@ -17,6 +11,9 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
   const onResultRef = useRef(options.onResult);
+  const retryCountRef = useRef(0);
+  const maxRetries = 2;
+
   onResultRef.current = options.onResult;
 
   useEffect(() => {
@@ -24,33 +21,74 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     setIsSupported(!!SpeechRecognition);
   }, []);
 
-  const startListening = useCallback(() => {
+  const cleanup = useCallback(() => {
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.abort();
+      } catch {}
+      recognitionRef.current = null;
+    }
+  }, []);
+
+  const startListening = useCallback(async () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError('Speech recognition not supported in this browser');
+      setError('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
       return;
     }
 
+    // Check microphone permission proactively
     try {
-      // Stop any existing instance
-      if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch {}
+      if (navigator.permissions) {
+        const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        if (status.state === 'denied') {
+          setError('Microphone access denied. Please enable it in browser settings.');
+          return;
+        }
       }
+    } catch {
+      // Safari doesn't support microphone permission query — continue anyway
+    }
 
+    // Request microphone access first
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Release immediately — we just need the permission grant
+      stream.getTracks().forEach(track => track.stop());
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError') {
+        setError('Microphone permission denied. Please allow microphone access.');
+      } else if (err.name === 'NotFoundError') {
+        setError('No microphone found. Please connect a microphone.');
+      } else if (err.name === 'NotReadableError') {
+        setError('Microphone is in use by another application.');
+      } else {
+        setError('Could not access microphone. Please try again.');
+      }
+      return;
+    }
+
+    // Clean up any existing instance
+    cleanup();
+    retryCountRef.current = 0;
+    setError(null);
+
+    try {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
       recognition.interimResults = false;
       recognition.maxAlternatives = 3;
       recognition.lang = options.lang || 'en-US';
 
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
+      recognition.onresult = (event: any) => {
         const results = event.results;
         if (results.length > 0) {
-          // Try all alternatives to find the best letter match
           let bestTranscript = '';
           for (let i = 0; i < results[0].length; i++) {
             const transcript = results[0][i].transcript.trim().toUpperCase();
-            // Clean: extract only letters, handle spoken letter names
             const cleaned = normalizeSpokenLetters(transcript);
             if (cleaned.length > bestTranscript.length || bestTranscript === '') {
               bestTranscript = cleaned;
@@ -60,58 +98,102 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
             onResultRef.current(bestTranscript);
           }
         }
+        retryCountRef.current = 0;
         setIsListening(false);
       };
 
       recognition.onerror = (event: any) => {
-        // Don't treat 'no-speech' or 'aborted' as errors
-        if (event.error === 'no-speech' || event.error === 'aborted') {
+        const errorType = event.error;
+
+        // Silent/expected errors — don't show to user
+        if (errorType === 'aborted' || errorType === 'no-speech') {
           setIsListening(false);
           return;
         }
-        setError(`Speech error: ${event.error}`);
+
+        // Network error — retry silently up to maxRetries
+        if (errorType === 'network' && retryCountRef.current < maxRetries) {
+          retryCountRef.current++;
+          // Small delay before retry
+          setTimeout(() => {
+            try {
+              cleanup();
+              // Re-create and start fresh — must be done carefully
+              const retryRecognition = new SpeechRecognition();
+              retryRecognition.continuous = false;
+              retryRecognition.interimResults = false;
+              retryRecognition.maxAlternatives = 3;
+              retryRecognition.lang = options.lang || 'en-US';
+              retryRecognition.onresult = recognition.onresult;
+              retryRecognition.onerror = recognition.onerror;
+              retryRecognition.onend = recognition.onend;
+              recognitionRef.current = retryRecognition;
+              retryRecognition.start();
+            } catch {
+              setError('Voice input unavailable. Please type your answer instead.');
+              setIsListening(false);
+            }
+          }, 500);
+          return;
+        }
+
+        // Map errors to friendly messages
+        const errorMessages: Record<string, string> = {
+          'network': 'Voice service unavailable. Please check your internet connection or type your answer.',
+          'not-allowed': 'Microphone access denied. Please enable it in browser settings.',
+          'service-not-allowed': 'Speech service not available. Please type your answer instead.',
+          'audio-capture': 'No microphone detected. Please connect one and try again.',
+          'language-not-supported': 'Language not supported for voice input. Please type instead.',
+        };
+
+        setError(errorMessages[errorType] || 'Voice input failed. Please type your answer instead.');
         setIsListening(false);
       };
 
       recognition.onend = () => {
-        setIsListening(false);
+        // Only set listening false if we're not in a retry cycle
+        if (retryCountRef.current === 0 || retryCountRef.current >= maxRetries) {
+          setIsListening(false);
+        }
       };
 
       recognitionRef.current = recognition;
       recognition.start();
       setIsListening(true);
       setError(null);
-    } catch (err) {
-      setError('Failed to start speech recognition');
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError') {
+        setError('Microphone permission denied. Please allow access and try again.');
+      } else {
+        setError('Could not start voice input. Please type your answer instead.');
+      }
       setIsListening(false);
     }
-  }, [options.lang]);
+  }, [options.lang, cleanup]);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current) {
-      try { recognitionRef.current.stop(); } catch {}
-    }
+    retryCountRef.current = maxRetries; // Prevent retries
+    cleanup();
     setIsListening(false);
-  }, []);
+  }, [cleanup]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (recognitionRef.current) {
-        try { recognitionRef.current.abort(); } catch {}
-      }
+      retryCountRef.current = maxRetries;
+      cleanup();
     };
-  }, []);
+  }, [cleanup]);
 
-  return { isListening, isSupported, error, startListening, stopListening };
+  const clearError = useCallback(() => setError(null), []);
+
+  return { isListening, isSupported, error, startListening, stopListening, clearError };
 }
 
 /**
  * Normalize spoken words to Snellen chart letters.
- * Handles cases like "E as in echo" → "E", "bee" → "B", etc.
  */
 function normalizeSpokenLetters(input: string): string {
-  // Map of common spoken representations to letters
   const phoneticMap: Record<string, string> = {
     'ALPHA': 'A', 'BRAVO': 'B', 'CHARLIE': 'C', 'DELTA': 'D',
     'ECHO': 'E', 'FOXTROT': 'F', 'GOLF': 'G', 'HOTEL': 'H',
@@ -120,7 +202,6 @@ function normalizeSpokenLetters(input: string): string {
     'QUEBEC': 'Q', 'ROMEO': 'R', 'SIERRA': 'S', 'TANGO': 'T',
     'UNIFORM': 'U', 'VICTOR': 'V', 'WHISKEY': 'W', 'XRAY': 'X',
     'YANKEE': 'Y', 'ZULU': 'Z',
-    // Common misheard
     'AYE': 'A', 'BEE': 'B', 'SEE': 'C', 'DEE': 'D', 'EEE': 'E',
     'EFF': 'F', 'GEE': 'G', 'AITCH': 'H', 'EYE': 'I', 'JAY': 'J',
     'KAY': 'K', 'ELL': 'L', 'EM': 'M', 'EN': 'N', 'OH': 'O',
@@ -138,10 +219,8 @@ function normalizeSpokenLetters(input: string): string {
     } else if (phoneticMap[word]) {
       result += phoneticMap[word];
     }
-    // Skip unrecognized words
   }
 
-  // If nothing matched from words, try extracting single letters from the raw input
   if (!result) {
     result = input.replace(/[^A-Z]/g, '');
   }
