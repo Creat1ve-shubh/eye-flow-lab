@@ -58,7 +58,7 @@ export default function Dashboard() {
             {t('dashboard.description', language)}
           </p>
           <Button
-            onClick={() => setScreen('selectMode')}
+            onClick={() => setScreen('patientDetails')}
             className="mt-8 h-14 px-10 text-lg rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg"
           >
             {t('dashboard.start', language)}

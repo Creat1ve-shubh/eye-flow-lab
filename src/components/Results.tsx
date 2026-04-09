@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { useApp } from '@/context/AppContext';
 import { t } from '@/lib/i18n';
-import { getScoreCategory, getRecommendations, EyeResult, TestResult } from '@/lib/eyeTestData';
+import { getScoreCategory, getRecommendations, TestResult } from '@/lib/eyeTestData';
 import { Button } from '@/components/ui/button';
 import { Eye, RotateCcw, Home, ArrowRight } from 'lucide-react';
 
@@ -37,7 +37,7 @@ function ScoreRing({ acuity, label }: { acuity: string; label: string }) {
 }
 
 export default function Results() {
-  const { language, setScreen, eyeResults, resetTest, saveTestResult } = useApp();
+  const { language, setScreen, eyeResults, resetTest, saveTestResult, patientDetails } = useApp();
 
   const overallAcuity = useMemo(() => {
     if (eyeResults.length === 0) return '20/200';
@@ -50,7 +50,7 @@ export default function Results() {
   }, [eyeResults]);
 
   const category = getScoreCategory(overallAcuity);
-  const recommendations = getRecommendations(category);
+  const recommendations = getRecommendations(category, patientDetails);
 
   useEffect(() => {
     if (eyeResults.length === 0) return;
@@ -59,6 +59,7 @@ export default function Results() {
       date: new Date().toLocaleDateString(),
       results: eyeResults,
       overallAcuity,
+      patientName: patientDetails.name || undefined,
     };
     saveTestResult(result);
   }, []);
@@ -78,6 +79,11 @@ export default function Results() {
           <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary flex items-center justify-center">
             <Eye className="w-8 h-8 text-primary-foreground" />
           </div>
+          {patientDetails.name && (
+            <p className="text-sm text-muted-foreground mb-2 font-display">
+              {patientDetails.name}{patientDetails.age ? `, ${patientDetails.age} yrs` : ''}
+            </p>
+          )}
           <h2 className="text-4xl font-display font-bold text-foreground mb-2">
             {t('results.title', language)}
           </h2>
