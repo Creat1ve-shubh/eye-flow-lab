@@ -1,7 +1,10 @@
 import { useApp } from '@/context/AppContext';
 import { t, languageNames, Language } from '@/lib/i18n';
-import { Eye, ArrowRight, Clock, Globe } from 'lucide-react';
+import { getScoreCategory, formatDuration } from '@/lib/eyeTestData';
+import { Eye, ArrowRight, Clock, Globe, User, Activity, Bluetooth } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getDeviceCapabilities } from '@/lib/iotService';
+import { useMemo } from 'react';
 
 const steps = [
   { key: 'step1', icon: '📏' },
@@ -10,8 +13,18 @@ const steps = [
   { key: 'step4', icon: '📊' },
 ];
 
+function getCategoryBadge(acuity: string) {
+  const cat = getScoreCategory(acuity);
+  const labels: Record<string, string> = {
+    excellent: 'Excellent', good: 'Good', moderate: 'Moderate', poor: 'Needs Attention',
+  };
+  return labels[cat] || cat;
+}
+
 export default function Dashboard() {
   const { language, setLanguage, setScreen, testHistory } = useApp();
+  const iotCapabilities = useMemo(() => getDeviceCapabilities(), []);
+  const hasIoT = iotCapabilities.bluetooth || iotCapabilities.serial;
 
   return (
     <div className="min-h-screen bg-background page-enter">
@@ -32,18 +45,25 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Language Selector */}
-          <div className="flex items-center gap-2">
-            <Globe className="w-4 h-4 text-muted-foreground" />
-            <select
-              value={language}
-              onChange={(e) => setLanguage(e.target.value as Language)}
-              className="text-sm bg-secondary text-secondary-foreground border-none rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
-            >
-              {Object.entries(languageNames).map(([code, name]) => (
-                <option key={code} value={code}>{name}</option>
-              ))}
-            </select>
+          <div className="flex items-center gap-3">
+            {hasIoT && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-md">
+                <Bluetooth className="w-3 h-3" />
+                <span>IoT Ready</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-muted-foreground" />
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value as Language)}
+                className="text-sm bg-secondary text-secondary-foreground border-none rounded-md px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer"
+              >
+                {Object.entries(languageNames).map(([code, name]) => (
+                  <option key={code} value={code}>{name}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
       </header>
@@ -75,7 +95,7 @@ export default function Dashboard() {
             {steps.map((step, i) => (
               <div
                 key={step.key}
-                className={`bg-card border border-border rounded-xl p-6 text-center animate-fade-in-up`}
+                className="bg-card border border-border rounded-xl p-6 text-center animate-fade-in-up"
                 style={{ animationDelay: `${i * 100}ms`, animationFillMode: 'both' }}
               >
                 <div className="text-3xl mb-3">{step.icon}</div>
@@ -102,15 +122,76 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="space-y-3">
-              {testHistory.slice(0, 5).map((result) => (
-                <div key={result.id} className="bg-card border border-border rounded-xl p-4 flex items-center justify-between hover:border-foreground/20 transition-colors duration-200">
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{result.date}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {result.results.map(r => `${r.eye}: ${r.acuity}`).join(' • ')}
-                    </p>
+              {testHistory.slice(0, 8).map((result, idx) => (
+                <div
+                  key={result.id}
+                  className="bg-card border border-border rounded-xl p-5 hover:border-foreground/20 transition-all duration-200 animate-fade-in-up"
+                  style={{ animationDelay: `${550 + idx * 60}ms`, animationFillMode: 'both' }}
+                >
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                        <User className="w-4 h-4 text-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">
+                          {result.patientName || 'Anonymous Patient'}
+                        </p>
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Clock className="w-3 h-3" />
+                          {result.date}
+                          {result.patientDetails?.age && (
+                            <span>· {result.patientDetails.age} yrs</span>
+                          )}
+                          {result.patientDetails?.gender && (
+                            <span>· {result.patientDetails.gender}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xl font-display font-bold text-foreground">{result.overallAcuity}</p>
+                      <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                        {getCategoryBadge(result.overallAcuity)}
+                      </span>
+                    </div>
                   </div>
-                  <span className="text-lg font-display font-bold text-foreground">{result.overallAcuity}</span>
+
+                  {/* Eye results row */}
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {result.results.map((r, ri) => (
+                      <span
+                        key={ri}
+                        className="text-xs bg-secondary text-secondary-foreground px-2.5 py-1 rounded-full font-mono"
+                      >
+                        {r.eye === 'left' ? 'L' : r.eye === 'right' ? 'R' : 'B'}: {r.acuity}
+                        {r.avgResponseTimeMs ? ` · ${(r.avgResponseTimeMs / 1000).toFixed(1)}s avg` : ''}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Medical flags */}
+                  {result.patientDetails && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {result.patientDetails.hasGlasses && (
+                        <span className="text-[10px] bg-secondary/60 text-muted-foreground px-2 py-0.5 rounded-full">👓 Glasses</span>
+                      )}
+                      {result.patientDetails.hasDiabetes && (
+                        <span className="text-[10px] bg-secondary/60 text-muted-foreground px-2 py-0.5 rounded-full">🩺 Diabetes</span>
+                      )}
+                      {result.patientDetails.hasHypertension && (
+                        <span className="text-[10px] bg-secondary/60 text-muted-foreground px-2 py-0.5 rounded-full">❤️ Hypertension</span>
+                      )}
+                      {result.patientDetails.familyHistoryEyeDisease && (
+                        <span className="text-[10px] bg-secondary/60 text-muted-foreground px-2 py-0.5 rounded-full">👨‍👩‍👧 Family History</span>
+                      )}
+                      {result.totalDurationMs && (
+                        <span className="text-[10px] bg-secondary/60 text-muted-foreground px-2 py-0.5 rounded-full">
+                          ⏱ {formatDuration(result.totalDurationMs)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
