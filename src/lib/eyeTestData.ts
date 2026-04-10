@@ -36,11 +36,22 @@ export function generateSnellenChart(): SnellenRow[] {
   ];
 }
 
+export interface RowMetric {
+  row: number;
+  acuity: string;
+  responseTimeMs: number;
+  correct: boolean;
+  inputMethod: 'keyboard' | 'voice';
+}
+
 export interface EyeResult {
   eye: EyeType;
   lastCorrectRow: number;
   acuity: string;
   correctRows: number[];
+  rowMetrics?: RowMetric[];
+  totalTimeMs?: number;
+  avgResponseTimeMs?: number;
 }
 
 export interface TestResult {
@@ -49,6 +60,9 @@ export interface TestResult {
   results: EyeResult[];
   overallAcuity: string;
   patientName?: string;
+  patientDetails?: PatientDetails;
+  totalDurationMs?: number;
+  deviceInfo?: string;
 }
 
 export function getAcuityFromRow(row: number): string {
@@ -68,80 +82,56 @@ export function getScoreCategory(acuity: string): 'excellent' | 'good' | 'modera
   return 'poor';
 }
 
+export function formatDuration(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${minutes}m ${secs}s`;
+}
+
 export function getRecommendations(category: string, patient?: PatientDetails | null): string[] {
   const recs: string[] = [];
 
-  // Base recommendations by category
   switch (category) {
     case 'excellent':
-      recs.push(
-        'Your vision appears to be in great shape!',
-        'Continue with regular eye checkups every 1-2 years.',
-      );
+      recs.push('Your vision appears to be in great shape!', 'Continue with regular eye checkups every 1-2 years.');
       break;
     case 'good':
-      recs.push(
-        'Your vision is good but could benefit from monitoring.',
-        'Consider scheduling an eye exam within the next 6 months.',
-      );
+      recs.push('Your vision is good but could benefit from monitoring.', 'Consider scheduling an eye exam within the next 6 months.');
       break;
     case 'moderate':
-      recs.push(
-        'We recommend scheduling an eye examination soon.',
-        'You may benefit from corrective lenses.',
-      );
+      recs.push('We recommend scheduling an eye examination soon.', 'You may benefit from corrective lenses.');
       break;
     case 'poor':
-      recs.push(
-        'Please consult an eye care professional as soon as possible.',
-        'Corrective lenses or treatment may significantly improve your quality of life.',
-      );
+      recs.push('Please consult an eye care professional as soon as possible.', 'Corrective lenses or treatment may significantly improve your quality of life.');
       break;
   }
 
   if (!patient || !patient.age) {
-    // Generic tips
-    recs.push(
-      'Follow the 20-20-20 rule when using screens.',
-      'Maintain a healthy diet rich in vitamins A and C.',
-    );
+    recs.push('Follow the 20-20-20 rule when using screens.', 'Maintain a healthy diet rich in vitamins A and C.');
     return recs;
   }
 
-  // Age-specific recommendations
   if (patient.age < 18) {
     recs.push('Children and teens should have annual eye exams to monitor developing vision.');
-    if (category !== 'excellent') {
-      recs.push('Early intervention can prevent worsening vision — consult a pediatric ophthalmologist.');
-    }
+    if (category !== 'excellent') recs.push('Early intervention can prevent worsening vision — consult a pediatric ophthalmologist.');
   } else if (patient.age >= 40 && patient.age < 60) {
     recs.push('After 40, presbyopia (difficulty focusing on close objects) is common — consider reading glasses.');
     recs.push('Screen for glaucoma and macular degeneration during your next eye exam.');
   } else if (patient.age >= 60) {
     recs.push('Annual comprehensive eye exams are essential after age 60.');
     recs.push('Watch for symptoms of cataracts: blurry vision, halos around lights, faded colors.');
-    if (category === 'moderate' || category === 'poor') {
-      recs.push('Ask your doctor about cataract evaluation and age-related macular degeneration screening.');
-    }
+    if (category === 'moderate' || category === 'poor') recs.push('Ask your doctor about cataract evaluation and age-related macular degeneration screening.');
   }
 
-  // Diabetes
   if (patient.hasDiabetes) {
     recs.push('Diabetic retinopathy is a leading cause of blindness — get a dilated eye exam at least once a year.');
     recs.push('Maintain stable blood sugar levels to protect your eye health.');
   }
+  if (patient.hasHypertension) recs.push('High blood pressure can damage retinal blood vessels — monitor your blood pressure regularly.');
+  if (patient.familyHistoryEyeDisease) recs.push('With a family history of eye disease, regular screenings for glaucoma and macular degeneration are important.');
 
-  // Hypertension
-  if (patient.hasHypertension) {
-    recs.push('High blood pressure can damage retinal blood vessels — monitor your blood pressure regularly.');
-  }
-
-  // Family history
-  if (patient.familyHistoryEyeDisease) {
-    recs.push('With a family history of eye disease, regular screenings for glaucoma and macular degeneration are important.');
-  }
-
-  // Screen time
   if (patient.screenTimeHours && patient.screenTimeHours >= 6) {
     recs.push(`With ${patient.screenTimeHours}+ hours of daily screen time, follow the 20-20-20 rule strictly.`);
     recs.push('Consider blue-light filtering glasses and ensure adequate screen brightness.');
@@ -149,16 +139,11 @@ export function getRecommendations(category: string, patient?: PatientDetails | 
     recs.push('Follow the 20-20-20 rule: every 20 minutes, look 20 feet away for 20 seconds.');
   }
 
-  // Glasses wearer
   if (patient.hasGlasses) {
-    if (category === 'moderate' || category === 'poor') {
-      recs.push('Your current prescription may need updating — schedule an appointment to check.');
-    } else {
-      recs.push('Keep your prescription up to date with regular checkups.');
-    }
+    if (category === 'moderate' || category === 'poor') recs.push('Your current prescription may need updating — schedule an appointment to check.');
+    else recs.push('Keep your prescription up to date with regular checkups.');
   }
 
-  // Last exam
   if (patient.lastEyeExam === 'more_than_2_years' || patient.lastEyeExam === 'never') {
     recs.push('It has been a while since your last eye exam — we strongly recommend scheduling one soon.');
   }
