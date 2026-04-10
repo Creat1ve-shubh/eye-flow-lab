@@ -11,14 +11,13 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
   const onResultRef = useRef(options.onResult);
-  const retryCountRef = useRef(0);
-  const maxRetries = 2;
+  const isStoppedRef = useRef(false);
 
   onResultRef.current = options.onResult;
 
   useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    setIsSupported(!!SpeechRecognition);
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setIsSupported(!!SR);
   }, []);
 
   const cleanup = useCallback(() => {
@@ -33,154 +32,91 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
     }
   }, []);
 
-  const startListening = useCallback(async () => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+  // Synchronous start — must be called directly from a user gesture (click)
+  const startListening = useCallback(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setError('Speech recognition not supported. Use Chrome or Edge.');
       return;
     }
 
-    // Check microphone permission proactively
-    try {
-      if (navigator.permissions) {
-        const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-        if (status.state === 'denied') {
-          setError('Microphone access denied. Please enable it in browser settings.');
-          return;
-        }
-      }
-    } catch {
-      // Safari doesn't support microphone permission query — continue anyway
-    }
-
-    // Request microphone access first
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Release immediately — we just need the permission grant
-      stream.getTracks().forEach(track => track.stop());
-    } catch (err: any) {
-      if (err.name === 'NotAllowedError') {
-        setError('Microphone permission denied. Please allow microphone access.');
-      } else if (err.name === 'NotFoundError') {
-        setError('No microphone found. Please connect a microphone.');
-      } else if (err.name === 'NotReadableError') {
-        setError('Microphone is in use by another application.');
-      } else {
-        setError('Could not access microphone. Please try again.');
-      }
-      return;
-    }
-
-    // Clean up any existing instance
     cleanup();
-    retryCountRef.current = 0;
+    isStoppedRef.current = false;
     setError(null);
 
+    const recognition = new SR();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 3;
+    recognition.lang = options.lang || 'en-US';
+
+    recognition.onresult = (event: any) => {
+      const results = event.results;
+      if (!results.length) return;
+
+      const lastResult = results[results.length - 1];
+      if (lastResult.isFinal) {
+        let best = '';
+        for (let i = 0; i < lastResult.length; i++) {
+          const cleaned = normalizeSpokenLetters(lastResult[i].transcript.trim().toUpperCase());
+          if (cleaned.length > best.length || !best) best = cleaned;
+        }
+        if (best && onResultRef.current) {
+          onResultRef.current(best);
+        }
+        setIsListening(false);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      const err = event.error;
+      if (err === 'aborted') return;
+      if (err === 'no-speech') {
+        setIsListening(false);
+        return;
+      }
+
+      const msgs: Record<string, string> = {
+        'network': 'Voice service unavailable. Check your connection or type instead.',
+        'not-allowed': 'Microphone denied. Enable it in browser settings.',
+        'service-not-allowed': 'Speech service unavailable. Type your answer instead.',
+        'audio-capture': 'No microphone detected.',
+      };
+      setError(msgs[err] || 'Voice input failed. Type your answer instead.');
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      if (!isStoppedRef.current && recognitionRef.current) {
+        // Don't auto-restart — just mark done
+      }
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+
     try {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 3;
-      recognition.lang = options.lang || 'en-US';
-
-      recognition.onresult = (event: any) => {
-        const results = event.results;
-        if (results.length > 0) {
-          let bestTranscript = '';
-          for (let i = 0; i < results[0].length; i++) {
-            const transcript = results[0][i].transcript.trim().toUpperCase();
-            const cleaned = normalizeSpokenLetters(transcript);
-            if (cleaned.length > bestTranscript.length || bestTranscript === '') {
-              bestTranscript = cleaned;
-            }
-          }
-          if (bestTranscript && onResultRef.current) {
-            onResultRef.current(bestTranscript);
-          }
-        }
-        retryCountRef.current = 0;
-        setIsListening(false);
-      };
-
-      recognition.onerror = (event: any) => {
-        const errorType = event.error;
-
-        // Silent/expected errors — don't show to user
-        if (errorType === 'aborted' || errorType === 'no-speech') {
-          setIsListening(false);
-          return;
-        }
-
-        // Network error — retry silently up to maxRetries
-        if (errorType === 'network' && retryCountRef.current < maxRetries) {
-          retryCountRef.current++;
-          // Small delay before retry
-          setTimeout(() => {
-            try {
-              cleanup();
-              // Re-create and start fresh — must be done carefully
-              const retryRecognition = new SpeechRecognition();
-              retryRecognition.continuous = false;
-              retryRecognition.interimResults = false;
-              retryRecognition.maxAlternatives = 3;
-              retryRecognition.lang = options.lang || 'en-US';
-              retryRecognition.onresult = recognition.onresult;
-              retryRecognition.onerror = recognition.onerror;
-              retryRecognition.onend = recognition.onend;
-              recognitionRef.current = retryRecognition;
-              retryRecognition.start();
-            } catch {
-              setError('Voice input unavailable. Please type your answer instead.');
-              setIsListening(false);
-            }
-          }, 500);
-          return;
-        }
-
-        // Map errors to friendly messages
-        const errorMessages: Record<string, string> = {
-          'network': 'Voice service unavailable. Please check your internet connection or type your answer.',
-          'not-allowed': 'Microphone access denied. Please enable it in browser settings.',
-          'service-not-allowed': 'Speech service not available. Please type your answer instead.',
-          'audio-capture': 'No microphone detected. Please connect one and try again.',
-          'language-not-supported': 'Language not supported for voice input. Please type instead.',
-        };
-
-        setError(errorMessages[errorType] || 'Voice input failed. Please type your answer instead.');
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        // Only set listening false if we're not in a retry cycle
-        if (retryCountRef.current === 0 || retryCountRef.current >= maxRetries) {
-          setIsListening(false);
-        }
-      };
-
-      recognitionRef.current = recognition;
       recognition.start();
       setIsListening(true);
-      setError(null);
-    } catch (err: any) {
-      if (err.name === 'NotAllowedError') {
-        setError('Microphone permission denied. Please allow access and try again.');
+    } catch (e: any) {
+      if (e.name === 'NotAllowedError') {
+        setError('Microphone permission denied.');
       } else {
-        setError('Could not start voice input. Please type your answer instead.');
+        setError('Could not start voice input. Type instead.');
       }
       setIsListening(false);
     }
   }, [options.lang, cleanup]);
 
   const stopListening = useCallback(() => {
-    retryCountRef.current = maxRetries; // Prevent retries
+    isStoppedRef.current = true;
     cleanup();
     setIsListening(false);
   }, [cleanup]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      retryCountRef.current = maxRetries;
+      isStoppedRef.current = true;
       cleanup();
     };
   }, [cleanup]);
@@ -190,9 +126,6 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}) 
   return { isListening, isSupported, error, startListening, stopListening, clearError };
 }
 
-/**
- * Normalize spoken words to Snellen chart letters.
- */
 function normalizeSpokenLetters(input: string): string {
   const phoneticMap: Record<string, string> = {
     'ALPHA': 'A', 'BRAVO': 'B', 'CHARLIE': 'C', 'DELTA': 'D',
@@ -221,9 +154,6 @@ function normalizeSpokenLetters(input: string): string {
     }
   }
 
-  if (!result) {
-    result = input.replace(/[^A-Z]/g, '');
-  }
-
+  if (!result) result = input.replace(/[^A-Z]/g, '');
   return result;
 }
