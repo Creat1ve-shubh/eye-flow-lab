@@ -1,14 +1,14 @@
 import { useApp } from '@/context/AppContext';
 import { t } from '@/lib/i18n';
 import { TestMode } from '@/lib/eyeTestData';
-import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ClipboardCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const modes: { mode: TestMode; key: string; icon: React.ReactNode; desc: string }[] = [
-  { mode: 'left', key: 'selectEyes.left', icon: <><EyeOff className="w-6 h-6" /><Eye className="w-6 h-6" /></>, desc: 'Test only your left eye' },
-  { mode: 'right', key: 'selectEyes.right', icon: <><Eye className="w-6 h-6" /><EyeOff className="w-6 h-6" /></>, desc: 'Test only your right eye' },
-  { mode: 'both', key: 'selectEyes.both', icon: <><Eye className="w-6 h-6" /><Eye className="w-6 h-6" /></>, desc: 'Test with both eyes open' },
-  { mode: 'full', key: 'selectEyes.full', icon: <><Eye className="w-5 h-5" /><Eye className="w-5 h-5" /><Eye className="w-5 h-5" /></>, desc: 'Complete evaluation' },
+  { mode: 'left', key: 'selectEyes.left', icon: <><Eye className="w-6 h-6" /><EyeOff className="w-6 h-6 opacity-40" /></>, desc: 'Cover your right eye, test left eye only' },
+  { mode: 'right', key: 'selectEyes.right', icon: <><EyeOff className="w-6 h-6 opacity-40" /><Eye className="w-6 h-6" /></>, desc: 'Cover your left eye, test right eye only' },
+  { mode: 'both', key: 'selectEyes.both', icon: <><Eye className="w-6 h-6" /><Eye className="w-6 h-6" /></>, desc: 'No covering — read with both eyes open' },
+  { mode: 'full', key: 'selectEyes.full', icon: <ClipboardCheck className="w-6 h-6" />, desc: 'Tests left, right & both eyes sequentially' },
 ];
 
 export default function SelectMode() {
